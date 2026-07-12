@@ -118,18 +118,20 @@ jobs:
       - name: Enable windows desktop
         run: flutter config --enable-windows-desktop
 
-      # RustDesk uses its own fork of flutter_rust_bridge (v1.80) to generate
-      # the Rust<->Dart bridge (src/bridge_generated.rs + flutter/lib/generated_bridge.dart).
-      # Without this, the build fails with: error[E0583] file not found for module `bridge_generated`.
+      # Generate the Rust<->Dart bridge (src/bridge_generated.rs + flutter/lib/generated_bridge.dart).
+      # Without this the build fails: error[E0583] file not found for module `bridge_generated`.
+      # Versions pinned to match RustDesk 1.4.9's official bridge.yml (frb 1.80.1 + cargo-expand 1.0.95).
       - name: Generate flutter_rust_bridge
         shell: bash
         run: |
           set -e
-          git clone https://github.com/SoLongAndThanksForAllThePizza/flutter_rust_bridge --depth=1 /tmp/frb
-          (cd /tmp/frb/frb_codegen && cargo install --path . --locked)
-          flutter_rust_bridge_codegen --rust-input ./src/flutter_ffi.rs --dart-output ./flutter/lib/generated_bridge.dart
-          # signature fix applied by upstream build.py
-          sed -i "s/ffi.NativeFunction<ffi.Bool Function(DartPort/ffi.NativeFunction<ffi.Uint8 Function(DartPort/g" flutter/lib/generated_bridge.dart || true
+          cargo install cargo-expand --version 1.0.95 --locked
+          cargo install flutter_rust_bridge_codegen --version 1.80.1 --features "uuid" --locked
+          (cd flutter && flutter pub get)
+          flutter_rust_bridge_codegen \
+            --rust-input ./src/flutter_ffi.rs \
+            --dart-output ./flutter/lib/generated_bridge.dart \
+            --c-output ./flutter/macos/Runner/bridge_generated.h
           echo "=== bridge files (must exist) ==="
           ls -la src/bridge_generated.rs flutter/lib/generated_bridge.dart
 
