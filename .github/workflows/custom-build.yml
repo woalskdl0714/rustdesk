@@ -1,0 +1,149 @@
+name: build-custom-rustdesk
+
+# 커스텀 RustDesk (Windows) 빌드
+# - 우리 서버(158.247.247.248) + 공개키를 소스에 박아넣음 -> 사용자는 ID/비번만으로 접속
+# - 라벨(Office1,Home1...)마다 exe 하나씩 생성. 프로세스명 = <라벨>.exe, 창 제목 = <라벨>
+# - 커스텀 아이콘(app.ico) 적용
+# 실행: Actions 탭 -> 이 워크플로우 -> Run workflow -> labels 입력 -> Run
+
+on:
+  workflow_dispatch:
+    inputs:
+      labels:
+        description: '기기 라벨 (쉼표구분, 영문/숫자만). 예: Office1,Home1'
+        default: 'Office1,Home1'
+        required: true
+
+env:
+  RUSTDESK_TAG: "1.4.9"
+  # 우리 자체 서버 (비밀 아님 - 서버IP + 공개키)
+  MY_SERVER: "158.247.247.248"
+  MY_PUB_KEY: "LEMjSgFj82Wasor3b+cd4ydvBeYmVLILr02UfIcSncs="
+
+jobs:
+  # 입력받은 labels 문자열을 매트릭스 배열로 변환
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set.outputs.matrix }}
+    steps:
+      - id: set
+        run: |
+          IFS=',' read -ra ARR <<< "${{ github.event.inputs.labels }}"
+          json=$(printf '%s\n' "${ARR[@]}" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | grep -v '^$' | jq -R . | jq -s -c .)
+          echo "matrix=$json" >> "$GITHUB_OUTPUT"
+          echo "labels -> $json"
+
+  build-windows:
+    needs: prepare
+    runs-on: windows-2022
+    strategy:
+      fail-fast: false
+      matrix:
+        label: ${{ fromJson(needs.prepare.outputs.matrix) }}
+    steps:
+      - name: Checkout RustDesk ${{ env.RUSTDESK_TAG }}
+        uses: actions/checkout@v4
+        with:
+          repository: rustdesk/rustdesk
+          ref: ${{ env.RUSTDESK_TAG }}
+          submodules: recursive
+
+      - name: Checkout this fork (custom assets)
+        uses: actions/checkout@v4
+        with:
+          path: _custom
+
+      - name: Inject our server, key, and app name (${{ matrix.label }})
+        shell: bash
+        run: |
+          set -e
+          f=libs/hbb_common/src/config.rs
+          sed -i -E "s|pub const RENDEZVOUS_SERVERS: &\[&str\] = &\[.*\];|pub const RENDEZVOUS_SERVERS: \&[\&str] = \&[\"${MY_SERVER}\"];|" "$f"
+          sed -i -E "s|pub const RS_PUB_KEY: &str = \".*\";|pub const RS_PUB_KEY: \&str = \"${MY_PUB_KEY}\";|" "$f"
+          sed -i "s|RwLock::new(\"RustDesk\".to_owned())|RwLock::new(\"${{ matrix.label }}\".to_owned())|" "$f"
+          echo "======== verify (must show our values) ========"
+          grep -nE 'RENDEZVOUS_SERVERS|RS_PUB_KEY|APP_NAME: RwLock' "$f"
+          # 안전장치: 치환이 안 됐으면 빌드 실패
+          grep -q "${MY_SERVER}" "$f" || { echo "ERROR: server not injected"; exit 1; }
+          grep -q "RwLock::new(\"${{ matrix.label }}\"" "$f" || { echo "ERROR: app name not injected"; exit 1; }
+
+      - name: Replace Windows app icon
+        shell: bash
+        run: |
+          set -e
+          if [ -f _custom/custom-assets/app.ico ]; then
+            cp _custom/custom-assets/app.ico flutter/windows/runner/resources/app_icon.ico
+            echo "icon replaced"
+          else
+            echo "WARNING: custom-assets/app.ico not found in fork -> keeping default icon"
+          fi
+
+      - name: Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.75"
+          targets: x86_64-pc-windows-msvc
+          components: rustfmt
+
+      - name: Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.24.5"
+          channel: stable
+          architecture: x64
+          cache: true
+
+      - name: Install LLVM
+        uses: KyleMayes/install-llvm-action@v2
+        with:
+          version: "15.0.6"
+
+      - name: Setup vcpkg
+        uses: lukka/run-vcpkg@v11
+        with:
+          vcpkgDirectory: C:\vcpkg
+          vcpkgGitCommitId: "120deac3062162151622ca4860575a33844ba10b"
+
+      - name: Install vcpkg deps (manifest mode)
+        shell: bash
+        env:
+          VCPKG_DEFAULT_HOST_TRIPLET: x64-windows-static
+        run: |
+          "$VCPKG_ROOT/vcpkg" install --triplet x64-windows-static --x-install-root="$VCPKG_ROOT/installed"
+
+      - name: Python build deps
+        run: pip3 install requests argparse
+
+      - name: Enable windows desktop
+        run: flutter config --enable-windows-desktop
+
+      - name: Build (flutter, hwcodec)
+        shell: bash
+        env:
+          VCPKG_ROOT: C:\vcpkg
+        run: |
+          python3 ./build.py --portable --flutter --skip-portable-pack --hwcodec --vram
+
+      - name: Package as ${{ matrix.label }}.exe
+        shell: bash
+        run: |
+          set -e
+          if [ -d "./flutter/build/windows/x64/runner/Release" ]; then
+            REL="./flutter/build/windows/x64/runner/Release"
+          elif [ -f "./rustdesk/rustdesk.exe" ]; then
+            REL="./rustdesk"
+          else
+            echo "ERROR: Release folder not found"; find . -name 'rustdesk.exe' -maxdepth 6; exit 1
+          fi
+          echo "using $REL"
+          mv "$REL/rustdesk.exe" "$REL/${{ matrix.label }}.exe"
+          mkdir -p out
+          cp -r "$REL/." "out/"
+          ls -la out | head -40
+
+      - name: Upload ${{ matrix.label }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.label }}
+          path: out/
