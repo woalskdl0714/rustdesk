@@ -118,6 +118,21 @@ jobs:
       - name: Enable windows desktop
         run: flutter config --enable-windows-desktop
 
+      # RustDesk uses its own fork of flutter_rust_bridge (v1.80) to generate
+      # the Rust<->Dart bridge (src/bridge_generated.rs + flutter/lib/generated_bridge.dart).
+      # Without this, the build fails with: error[E0583] file not found for module `bridge_generated`.
+      - name: Generate flutter_rust_bridge
+        shell: bash
+        run: |
+          set -e
+          git clone https://github.com/SoLongAndThanksForAllThePizza/flutter_rust_bridge --depth=1 /tmp/frb
+          (cd /tmp/frb/frb_codegen && cargo install --path . --locked)
+          flutter_rust_bridge_codegen --rust-input ./src/flutter_ffi.rs --dart-output ./flutter/lib/generated_bridge.dart
+          # signature fix applied by upstream build.py
+          sed -i "s/ffi.NativeFunction<ffi.Bool Function(DartPort/ffi.NativeFunction<ffi.Uint8 Function(DartPort/g" flutter/lib/generated_bridge.dart || true
+          echo "=== bridge files (must exist) ==="
+          ls -la src/bridge_generated.rs flutter/lib/generated_bridge.dart
+
       - name: Build (flutter, hwcodec)
         shell: bash
         env:
