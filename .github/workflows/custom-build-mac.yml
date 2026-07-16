@@ -57,7 +57,7 @@ jobs:
               (if $a=="apple"
                  then {runner:"macos-14", target:"aarch64-apple-darwin", triplet:"arm64-osx", extra:"",
                        llvm_url:"https://github.com/llvm/llvm-project/releases/download/llvmorg-15.0.6/clang+llvm-15.0.6-arm64-apple-darwin21.0.tar.xz"}
-                 else {runner:"macos-13", target:"x86_64-apple-darwin", triplet:"x64-osx",  extra:"",
+                 else {runner:"macos-15-intel", target:"x86_64-apple-darwin", triplet:"x64-osx",  extra:"",
                        llvm_url:"https://github.com/llvm/llvm-project/releases/download/llvmorg-15.0.6/clang+llvm-15.0.6-x86_64-apple-darwin.tar.xz"} end)
             ]')
           echo "matrix={\"include\":$combo}" >> "$GITHUB_OUTPUT"
