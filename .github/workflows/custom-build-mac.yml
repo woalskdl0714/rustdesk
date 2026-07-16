@@ -55,7 +55,7 @@ jobs:
             [ $labels[] as $l | $archs[] as $a |
               {label:$l, arch:$a} +
               (if $a=="apple"
-                 then {runner:"macos-14", target:"aarch64-apple-darwin", triplet:"arm64-osx", extra:"--screencapturekit"}
+                 then {runner:"macos-14", target:"aarch64-apple-darwin", triplet:"arm64-osx", extra:""}
                  else {runner:"macos-13", target:"x86_64-apple-darwin", triplet:"x64-osx",  extra:""} end)
             ]')
           echo "matrix={\"include\":$combo}" >> "$GITHUB_OUTPUT"
