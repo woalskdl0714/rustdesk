@@ -157,7 +157,9 @@ jobs:
         shell: bash
         run: |
           set -e
-          curl -sSL "${{ matrix.llvm_url }}" -o /tmp/llvm15.tar.xz
+          curl -fSL --retry 6 --retry-all-errors --retry-delay 5 "${{ matrix.llvm_url }}" -o /tmp/llvm15.tar.xz
+          # 온전한 xz 아카이브인지 검증 (일시 오류로 HTML/부분파일 받는 경우 방지)
+          file /tmp/llvm15.tar.xz; xz -t /tmp/llvm15.tar.xz
           mkdir -p "$HOME/llvm15"
           tar -xf /tmp/llvm15.tar.xz -C "$HOME/llvm15" --strip-components=1
           echo "LIBCLANG_PATH=$HOME/llvm15/lib" >> "$GITHUB_ENV"
