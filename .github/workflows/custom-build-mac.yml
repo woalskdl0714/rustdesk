@@ -55,8 +55,10 @@ jobs:
             [ $labels[] as $l | $archs[] as $a |
               {label:$l, arch:$a} +
               (if $a=="apple"
-                 then {runner:"macos-14", target:"aarch64-apple-darwin", triplet:"arm64-osx", extra:""}
-                 else {runner:"macos-13", target:"x86_64-apple-darwin", triplet:"x64-osx",  extra:""} end)
+                 then {runner:"macos-14", target:"aarch64-apple-darwin", triplet:"arm64-osx", extra:"",
+                       llvm_url:"https://github.com/llvm/llvm-project/releases/download/llvmorg-15.0.6/clang+llvm-15.0.6-arm64-apple-darwin21.0.tar.xz"}
+                 else {runner:"macos-13", target:"x86_64-apple-darwin", triplet:"x64-osx",  extra:"",
+                       llvm_url:"https://github.com/llvm/llvm-project/releases/download/llvmorg-15.0.6/clang+llvm-15.0.6-x86_64-apple-darwin.tar.xz"} end)
             ]')
           echo "matrix={\"include\":$combo}" >> "$GITHUB_OUTPUT"
           echo "matrix -> {\"include\":$combo}"
@@ -122,17 +124,6 @@ jobs:
       - name: Install brew deps
         run: brew install create-dmg pkg-config yasm cmake ninja wget || true
 
-      # ⚠️ 최신 libclang(brew llvm 21)은 aom 헤더를 잘못 파싱해 scrap 바인딩이 통째로 비어버림
-      #    -> Windows 워크플로우와 동일하게 LLVM 15.0.6 고정 (bindgen 용)
-      - name: Install LLVM 15.0.6 (pinned for bindgen)
-        uses: KyleMayes/install-llvm-action@v2
-        with:
-          version: "15.0.6"
-
-      - name: Set LIBCLANG_PATH
-        shell: bash
-        run: echo "LIBCLANG_PATH=$LLVM_PATH/lib" >> "$GITHUB_ENV"
-
       - name: Rust toolchain
         uses: dtolnay/rust-toolchain@master
         with:
@@ -158,6 +149,19 @@ jobs:
         run: |
           set -e
           "$VCPKG_ROOT/vcpkg" install --triplet ${{ matrix.triplet }} --x-install-root="$VCPKG_ROOT/installed"
+
+      # libclang 15.0.6 만 따로 받아 bindgen 에만 사용 (PATH 에는 안 넣음).
+      # 최신 libclang(brew llvm 21)은 aom 헤더를 오파싱해 scrap 바인딩이 비어버림.
+      # PATH 에 clang-15 를 넣으면 vcpkg 컴파일러 감지가 세그폴트 -> LIBCLANG_PATH 로만 지정.
+      - name: Fetch libclang 15.0.6 (bindgen only)
+        shell: bash
+        run: |
+          set -e
+          curl -sSL "${{ matrix.llvm_url }}" -o /tmp/llvm15.tar.xz
+          mkdir -p "$HOME/llvm15"
+          tar -xf /tmp/llvm15.tar.xz -C "$HOME/llvm15" --strip-components=1
+          echo "LIBCLANG_PATH=$HOME/llvm15/lib" >> "$GITHUB_ENV"
+          ls -la "$HOME/llvm15/lib/"libclang.dylib
 
       - name: Python build deps
         run: pip3 install --break-system-packages requests argparse || pip3 install requests argparse
