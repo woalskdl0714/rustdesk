@@ -120,9 +120,18 @@ jobs:
           "$PWD/nasm-2.16.03/nasm" -v
 
       - name: Install brew deps
-        run: |
-          brew install llvm create-dmg pkg-config yasm cmake ninja wget || true
-          echo "LIBCLANG_PATH=$(brew --prefix llvm)/lib" >> "$GITHUB_ENV"
+        run: brew install create-dmg pkg-config yasm cmake ninja wget || true
+
+      # ⚠️ 최신 libclang(brew llvm 21)은 aom 헤더를 잘못 파싱해 scrap 바인딩이 통째로 비어버림
+      #    -> Windows 워크플로우와 동일하게 LLVM 15.0.6 고정 (bindgen 용)
+      - name: Install LLVM 15.0.6 (pinned for bindgen)
+        uses: KyleMayes/install-llvm-action@v2
+        with:
+          version: "15.0.6"
+
+      - name: Set LIBCLANG_PATH
+        shell: bash
+        run: echo "LIBCLANG_PATH=$LLVM_PATH/lib" >> "$GITHUB_ENV"
 
       - name: Rust toolchain
         uses: dtolnay/rust-toolchain@master
