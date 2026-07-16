@@ -150,20 +150,18 @@ jobs:
           set -e
           "$VCPKG_ROOT/vcpkg" install --triplet ${{ matrix.triplet }} --x-install-root="$VCPKG_ROOT/installed"
 
-      # libclang 15.0.6 만 따로 받아 bindgen 에만 사용 (PATH 에는 안 넣음).
-      # 최신 libclang(brew llvm 21)은 aom 헤더를 오파싱해 scrap 바인딩이 비어버림.
-      # PATH 에 clang-15 를 넣으면 vcpkg 컴파일러 감지가 세그폴트 -> LIBCLANG_PATH 로만 지정.
-      - name: Fetch libclang 15.0.6 (bindgen only)
+      # libclang 15 만 bindgen 에 사용 (LIBCLANG_PATH 로만 지정, PATH 안 건드림).
+      # 최신 libclang(brew llvm 21)은 aom 헤더를 오파싱해 scrap 바인딩이 통째로 비어버림.
+      # llvm@15 는 keg-only 라 심볼릭링크가 PATH 에 안 걸림 -> vcpkg/네이티브는 Xcode clang 유지.
+      # (LLVM 15.0.6 공식 tar 는 arm64 만 있고 x86_64 macOS 파일이 없어서 brew 로 통일)
+      - name: Install libclang 15 (bindgen only)
         shell: bash
         run: |
           set -e
-          curl -fSL --retry 6 --retry-all-errors --retry-delay 5 "${{ matrix.llvm_url }}" -o /tmp/llvm15.tar.xz
-          # 온전한 xz 아카이브인지 검증 (일시 오류로 HTML/부분파일 받는 경우 방지)
-          file /tmp/llvm15.tar.xz; xz -t /tmp/llvm15.tar.xz
-          mkdir -p "$HOME/llvm15"
-          tar -xf /tmp/llvm15.tar.xz -C "$HOME/llvm15" --strip-components=1
-          echo "LIBCLANG_PATH=$HOME/llvm15/lib" >> "$GITHUB_ENV"
-          ls -la "$HOME/llvm15/lib/"libclang.dylib
+          brew install llvm@15
+          P="$(brew --prefix llvm@15)"
+          echo "LIBCLANG_PATH=$P/lib" >> "$GITHUB_ENV"
+          ls -la "$P/lib/"libclang.dylib
 
       - name: Python build deps
         run: pip3 install --break-system-packages requests argparse || pip3 install requests argparse
